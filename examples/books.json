@@ -1,0 +1,10 @@
+{
+  "name": "Books (custom selectors)",
+  "item_selector": "article.product_pod",
+  "fields": [
+    {"name": "title", "css": "h3 a", "attr": "title"},
+    {"name": "price", "css": ".price_color", "clean": "price"},
+    {"name": "in_stock", "css": ".availability"},
+    {"name": "link", "css": "h3 a", "attr": "href", "clean": "url"}
+  ]
+}

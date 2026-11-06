@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "web-scraping-tool"
+version = "0.1.0"
+description = "Scrape any website and export to CSV, Excel, a database or an API, with a dashboard."
+requires-python = ">=3.10"
+dependencies = [
+  "httpx", "beautifulsoup4", "lxml", "pydantic>=2", "typer", "pandas", "openpyxl",
+  "sqlalchemy>=2", "fastapi", "uvicorn", "streamlit",
+]
+
+[project.optional-dependencies]
+js = ["playwright"]
+postgres = ["psycopg[binary]"]
+mysql = ["pymysql"]
+dev = ["pytest"]
+
+[project.scripts]
+scraper = "scraper.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
