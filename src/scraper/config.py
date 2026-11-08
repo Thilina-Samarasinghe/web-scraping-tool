@@ -57,7 +57,9 @@ class JobConfig(BaseModel):
     def _http_only(cls, urls: list[str]) -> list[str]:
         for url in urls:
             parsed = urlparse(url)
-            if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            host = parsed.hostname or ""
+            valid_host = host and not any(ch.isspace() for ch in parsed.netloc) and ("." in host or host == "localhost")
+            if parsed.scheme not in {"http", "https"} or not valid_host:
                 raise ValueError(f"Not a valid http(s) URL: {url!r}")
         return urls
 

@@ -27,7 +27,8 @@ Then open http://127.0.0.1:8501.
 
 | Page | What it does |
 |---|---|
-| **New scrape** | Enter URLs, set limits, test one page, then start |
+| **Home** | Paste a link, click **Extract data**, see the table and download it |
+| **Advanced scrape** | Set limits, follow links, choose fields, test one page, then start |
 | **Jobs** | Watch progress, read logs, stop or delete jobs |
 | **Data and export** | Search rows, download CSV, Excel or JSON, write to a database, or send to an API |
 

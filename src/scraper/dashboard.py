@@ -52,11 +52,109 @@ def job_title(job: dict) -> str:
     return f"#{job['id']} · {job['name']} · {job['items']} rows"
 
 
-# --- New scrape ----------------------------------------------------------------------------
+def wait_for_job(job_id: int, process, label: str) -> dict:
+    """Show live progress until the worker process finishes, then return the job."""
+    with st.status(label, expanded=False) as progress:
+        job = store.get_job(job_id)
+        while job["status"] in ACTIVE and process.poll() is None:
+            pages = f"{job['pages']} page{'' if job['pages'] == 1 else 's'}"
+            progress.update(label=f"{label} {pages}, {job['items']:,} rows so far")
+            time.sleep(0.5)
+            job = store.get_job(job_id)
+        job = store.get_job(job_id)
+        if job["status"] in ACTIVE:  # The worker died without recording a result.
+            store.finish(job_id, "failed", f"The scraping process stopped unexpectedly (exit code {process.returncode})")
+            job = store.get_job(job_id)
+        progress.update(label="Finished", state="complete" if job["status"] == "completed" else "error")
+    return job
+
+
+# --- Home: paste a link, get the data ------------------------------------------------------
+
+def page_home() -> None:
+    st.title("🕸️ Web Scraping Tool")
+    st.caption("Paste a website link to get its data as a table you can download.")
+
+    with st.form("quick_extract"):
+        url = st.text_input("Website link", placeholder="https://books.toscrape.com/")
+        pages_col, js_col, button_col = st.columns([2, 2, 1], vertical_alignment="bottom")
+        pages = pages_col.number_input(
+            "Pages to scrape", min_value=1, max_value=1000, value=1,
+            help="More than 1 follows the site's “next page” links.",
+        )
+        render_js = js_col.checkbox(
+            "Page needs JavaScript", help="Tick this if the result comes back empty. It is slower."
+        )
+        submitted = button_col.form_submit_button("Extract data", type="primary", width="stretch")
+
+    if submitted:
+        url = url.strip()
+        if url and "://" not in url:
+            url = "https://" + url
+        try:
+            config = JobConfig(
+                name=url, start_urls=[url], max_pages=int(pages), follow_pagination=pages > 1, render_js=render_js
+            )
+        except ValidationError:
+            st.session_state.pop("home_job", None)  # Don't show an older result under the error.
+            st.error("Please enter a full website link, for example https://example.com")
+        else:
+            job_id = store.create_job(config)
+            process = launch_job(job_id, str(store.path))
+            wait_for_job(job_id, process, "Extracting data…")
+            st.session_state["home_job"] = job_id
+            st.session_state["selected_job"] = job_id
+
+    job = store.get_job(st.session_state["home_job"]) if "home_job" in st.session_state else None
+    if job:
+        _show_home_result(job)
+    else:
+        _show_recent_jobs()
+
+
+def _show_home_result(job: dict) -> None:
+    rows = store.get_items(job["id"])
+    if job["status"] != "completed":
+        st.error(f"{status_label(job['status'])}: {job['message'] or 'see the Jobs page for details'}")
+    elif not rows or (len(rows) == 1 and "heading" in rows[0]):
+        st.warning(
+            "No list or table was found on this page, so only a page summary was saved. "
+            "Try ticking **Page needs JavaScript**, or use **Advanced scrape** to pick the fields yourself."
+        )
+    else:
+        st.success(f"Found **{len(rows):,} rows** from {job['pages']} page{'s' if job['pages'] != 1 else ''}.")
+
+    for entry in [e for e in store.get_logs(job["id"]) if e["level"] != "info"][:5]:
+        st.caption(f"⚠️ {entry['message']}")
+
+    if not rows:
+        return
+    st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True, height=min(38 + 35 * len(rows), 460))
+
+    base = f"job_{job['id']}"
+    csv_col, excel_col, json_col, _ = st.columns([1, 1, 1, 3])
+    csv_col.download_button("Download CSV", to_csv_bytes(rows), f"{base}.csv", "text/csv", width="stretch")
+    excel_col.download_button("Download Excel", to_excel_bytes(rows), f"{base}.xlsx", EXCEL_TYPE, width="stretch")
+    json_col.download_button("Download JSON", to_json_bytes(rows), f"{base}.json", "application/json", width="stretch")
+    st.caption(f"Saved as job #{job['id']}. To send it to a database or an API, open **Data and export**.")
+
+
+def _show_recent_jobs() -> None:
+    jobs = store.list_jobs()[:5]
+    if not jobs:
+        st.info("**How it works:** paste a link above and click **Extract data**. The tool finds tables, "
+                "product lists and other repeated content automatically.")
+        return
+    st.subheader("Recent scrapes")
+    recent = jobs_frame(jobs)[["ID", "Name", "Status", "Pages", "Rows", "Created (UTC)"]]
+    st.dataframe(recent, width="stretch", hide_index=True)
+
+
+# --- Advanced scrape -----------------------------------------------------------------------
 
 def page_new_scrape() -> None:
-    st.title("New scrape")
-    st.caption("Enter a website, choose how much to collect, and start. Leave extraction on automatic to begin.")
+    st.title("Advanced scrape")
+    st.caption("Choose exactly how much to collect, which links to follow, and which fields to extract.")
 
     with st.form("new_job"):
         name = st.text_input("Job name", placeholder="Book prices")
@@ -147,15 +245,7 @@ def page_new_scrape() -> None:
 
 
 def _show_test_result(job_id: int, process) -> None:
-    with st.spinner("Testing one page…"):
-        job = store.get_job(job_id)
-        while job["status"] in ACTIVE and process.poll() is None:
-            time.sleep(0.5)
-            job = store.get_job(job_id)
-        job = store.get_job(job_id)
-        if job["status"] in ACTIVE:  # The worker died without recording a result.
-            store.finish(job_id, "failed", f"The scraping process stopped unexpectedly (exit code {process.returncode})")
-            job = store.get_job(job_id)
+    job = wait_for_job(job_id, process, "Testing one page…")
     rows = store.get_items(job_id, limit=50)
     if job["status"] == "completed":
         summary = f"Test finished: found {job['items']} rows on the first page."
@@ -177,7 +267,7 @@ def page_jobs() -> None:
     st.title("Jobs")
     jobs = store.list_jobs()
     if not jobs:
-        st.info("No jobs yet. Start one from **New scrape**.")
+        st.info("No jobs yet. Paste a link on **Home** to start.")
         return
 
     total, running, pages, rows = st.columns(4)
@@ -318,7 +408,8 @@ def _without_secrets(exc: Exception, secret: str) -> str:
 
 pages = st.navigation(
     [
-        st.Page(page_new_scrape, title="New scrape", icon="➕", default=True),
+        st.Page(page_home, title="Home", icon="🏠", default=True),
+        st.Page(page_new_scrape, title="Advanced scrape", icon="⚙️", url_path="advanced"),
         st.Page(page_jobs, title="Jobs", icon="📋", url_path="jobs"),
         st.Page(page_data, title="Data and export", icon="📊", url_path="data"),
     ]

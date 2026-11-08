@@ -101,9 +101,10 @@ def test_cancelled_job_stays_cancelled(tmp_path, site):
     assert store.get_job(job_id)["pages"] == 0
 
 
-def test_file_urls_are_rejected():
+@pytest.mark.parametrize("url", ["file:///etc/passwd", "https://not a link", "https://nodot", "example.com"])
+def test_invalid_urls_are_rejected(url):
     with pytest.raises(ValidationError):
-        JobConfig(start_urls=["file:///etc/passwd"])
+        JobConfig(start_urls=[url])
 
 
 def test_duplicate_rows_are_dropped(tmp_path, site):
